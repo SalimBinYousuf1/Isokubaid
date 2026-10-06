@@ -1,0 +1,6 @@
+{
+  "name": "Ubaid",
+  "description": "Production host app (Phone A) for remote screen mirroring, touch control, file access, notifications, and device telemetry over WebRTC.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

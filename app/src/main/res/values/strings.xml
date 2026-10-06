@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Ubaid</string>
+    <string name="subtitle_host">Remote Host Engine</string>
+    <string name="setup_title">Host Setup</string>
+    <string name="setup_subtitle">Configure required system integrations</string>
+    <string name="accessibility_description">Enables Ubaid remote input dispatch for gestures, navigation, and text entry from authorized controller.</string>
+    <string name="notification_listener_service_name">Ubaid Notification Forwarder</string>
+</resources>
