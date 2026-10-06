@@ -80,6 +80,18 @@ class HostViewModel(application: Application) : AndroidViewModel(application) {
         cachedProjectionIntent = resultIntent
         _permissionsState.update { it.copy(hasMediaProjectionConsent = true) }
         refreshSystemPermissions()
+
+        if (WebRtcHostService.isServiceRunning) {
+            val serviceIntent = Intent(context, WebRtcHostService::class.java).apply {
+                action = WebRtcHostService.ACTION_ATTACH_VIDEO
+                putExtra(WebRtcHostService.EXTRA_PROJECTION_DATA, resultIntent)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        }
     }
 
     fun refreshSystemPermissions() {

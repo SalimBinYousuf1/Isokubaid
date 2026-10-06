@@ -117,6 +117,14 @@ class WebRtcHostManager(
     private var periodicStatusJob: Job? = null
     private var reconnectBackoffMs = 1000L
 
+    // Pending remote ICE candidates received before remote description is set
+    private val pendingRemoteCandidates = mutableListOf<IceCandidate>()
+
+    var onVideoConsentRequired: (() -> Unit)? = null
+
+    val hasActiveVideo: Boolean
+        get() = videoTrack != null && _videoMetrics.value.isFlowing
+
     // Notification listener registration
     private val notificationCallback = object : UbaidNotificationListenerService.NotificationEventCallback {
         override fun onNotificationPostedEvent(
@@ -297,7 +305,8 @@ class WebRtcHostManager(
                 override fun onStop() {
                     super.onStop()
                     log("Video_WARN", "MediaProjection stopped by system/user")
-                    updateChannelState("video", ChannelState.BROKEN, isVerified = false, "Capture stopped by system")
+                    updateChannelState("video", ChannelState.WAITING, isVerified = false, "Capture stopped. Tap notification to resume.")
+                    onVideoConsentRequired?.invoke()
                 }
             })
 
@@ -365,8 +374,11 @@ class WebRtcHostManager(
             wm.defaultDisplay.getRealMetrics(metrics)
 
             // Use crisp standard streaming resolution capped for ultra-smooth latency
-            val targetWidth = (metrics.widthPixels / 2).coerceAtLeast(540)
-            val targetHeight = (metrics.heightPixels / 2).coerceAtLeast(960)
+            // Ensure width and height are strictly even numbers for video hardware encoders
+            val rawW = metrics.widthPixels / 2
+            val rawH = metrics.heightPixels / 2
+            val targetWidth = rawW.coerceAtLeast(540).let { if (it % 2 != 0) it - 1 else it }
+            val targetHeight = rawH.coerceAtLeast(960).let { if (it % 2 != 0) it - 1 else it }
 
             screenCapturer?.startCapture(targetWidth, targetHeight, 30)
 
@@ -380,6 +392,32 @@ class WebRtcHostManager(
         } catch (e: Exception) {
             log("Video_ERROR", "Error configuring screen capture: ${e.message}")
             updateChannelState("video", ChannelState.BROKEN, isVerified = false, "Capture initialization failed: ${e.message}")
+        }
+    }
+
+    fun attachScreenCapture(projectionIntent: Intent) {
+        log("Video", "Attaching renewed MediaProjection intent to active session...")
+        this.mediaProjectionData = projectionIntent
+
+        try {
+            screenCapturer?.stopCapture()
+            screenCapturer?.dispose()
+        } catch (e: Exception) {
+            // Ignored
+        }
+
+        setupMediaProjectionCapture(projectionIntent)
+
+        val pc = peerConnection
+        val track = videoTrack
+        if (pc != null && track != null) {
+            val existingSender = pc.senders.find { it.track()?.id() == VIDEO_TRACK_ID }
+            if (existingSender == null) {
+                pc.addTrack(track, listOf(STREAM_ID))
+                createAndSendOffer(isIceRestart = false)
+            } else {
+                existingSender.setTrack(track, true)
+            }
         }
     }
 
@@ -590,6 +628,7 @@ class WebRtcHostManager(
                     override fun onCreateSuccess(p0: SessionDescription?) {}
                     override fun onSetSuccess() {
                         log("Signaling", "Successfully applied remote Answer SDP")
+                        drainPendingRemoteCandidates()
                     }
                     override fun onCreateFailure(error: String?) {}
                     override fun onSetFailure(error: String?) {
@@ -598,8 +637,15 @@ class WebRtcHostManager(
                 }, answerSdp)
             },
             onRemoteCandidate = { candidate ->
-                log("Signaling", "Adding remote ICE candidate: ${candidate.sdpMid}")
-                peerConnection?.addIceCandidate(candidate)
+                if (peerConnection?.remoteDescription != null) {
+                    log("Signaling", "Adding remote ICE candidate: ${candidate.sdpMid}")
+                    peerConnection?.addIceCandidate(candidate)
+                } else {
+                    log("Signaling", "Queuing remote candidate until remote description set: ${candidate.sdpMid}")
+                    synchronized(pendingRemoteCandidates) {
+                        pendingRemoteCandidates.add(candidate)
+                    }
+                }
             },
             onSignalingError = { errorMsg ->
                 log("Signaling_ERROR", errorMsg)
@@ -608,6 +654,18 @@ class WebRtcHostManager(
 
         signaling?.start()
         createAndSendOffer(isIceRestart = false)
+    }
+
+    private fun drainPendingRemoteCandidates() {
+        synchronized(pendingRemoteCandidates) {
+            if (pendingRemoteCandidates.isNotEmpty()) {
+                log("Signaling", "Draining ${pendingRemoteCandidates.size} queued remote ICE candidates")
+                pendingRemoteCandidates.forEach { candidate ->
+                    peerConnection?.addIceCandidate(candidate)
+                }
+                pendingRemoteCandidates.clear()
+            }
+        }
     }
 
     private fun createAndSendOffer(isIceRestart: Boolean) {

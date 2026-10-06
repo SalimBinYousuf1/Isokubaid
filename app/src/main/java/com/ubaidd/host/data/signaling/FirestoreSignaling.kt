@@ -26,6 +26,8 @@ class FirestoreSignaling(
     private var snapshotListener: ListenerRegistration? = null
     private val processedRemoteCandidates = mutableSetOf<String>()
 
+    private var lastProcessedAnswerSdp: String? = null
+
     fun start() {
         try {
             val db = FirebaseFirestore.getInstance()
@@ -59,13 +61,15 @@ class FirestoreSignaling(
 
                 if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
-                // Check for remote Answer
+                // Check for remote Answer (only once per unique answer SDP)
                 val answerMap = snapshot.get("answer") as? Map<*, *>
                 if (answerMap != null) {
                     val typeStr = answerMap["type"] as? String ?: "answer"
                     val sdpStr = answerMap["sdp"] as? String
-                    if (!sdpStr.isNullOrBlank()) {
+                    if (!sdpStr.isNullOrBlank() && sdpStr != lastProcessedAnswerSdp) {
+                        lastProcessedAnswerSdp = sdpStr
                         val type = SessionDescription.Type.fromCanonicalForm(typeStr.lowercase())
+                        Log.i(TAG, "New remote answer SDP received from controller")
                         onAnswerReceived(SessionDescription(type, sdpStr))
                     }
                 }
@@ -95,6 +99,8 @@ class FirestoreSignaling(
 
     fun publishOffer(offer: SessionDescription) {
         val doc = docRef ?: return
+        lastProcessedAnswerSdp = null
+        processedRemoteCandidates.clear()
         val offerData = hashMapOf(
             "status" to "offered",
             "offer" to hashMapOf(
