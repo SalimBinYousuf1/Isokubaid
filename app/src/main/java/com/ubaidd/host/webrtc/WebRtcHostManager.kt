@@ -12,6 +12,8 @@ import com.ubaidd.host.data.model.VideoMetrics
 import com.ubaidd.host.data.signaling.FirestoreSignaling
 import com.ubaidd.host.service.UbaidAccessibilityService
 import com.ubaidd.host.service.UbaidNotificationListenerService
+import com.ubaidd.host.service.WebRtcHostService
+import com.ubaidd.host.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -775,6 +777,29 @@ class WebRtcHostManager(
             if (passed) {
                 onStreamConfirmedToast("Accessibility engine verified")
             }
+        }
+
+        testNotificationInterception()
+    }
+
+    private fun testNotificationInterception() {
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            val testNotif = androidx.core.app.NotificationCompat.Builder(context, WebRtcHostService.CHANNEL_ID)
+                .setContentTitle("Ubaid Verification Probe")
+                .setContentText("Validating NotificationListenerService interception...")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                .setAutoCancel(true)
+                .build()
+            nm?.notify(9999, testNotif)
+            log("Diagnostics", "Dispatched self-test notification (ID: 9999) to verify forwarder interception")
+            scope.launch {
+                delay(2000L)
+                nm?.cancel(9999)
+            }
+        } catch (e: Exception) {
+            log("Diagnostics_WARN", "Self-test notification dispatch failed: ${e.message}")
         }
     }
 

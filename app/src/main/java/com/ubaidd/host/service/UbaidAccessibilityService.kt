@@ -54,10 +54,28 @@ class UbaidAccessibilityService : AccessibilityService() {
         Log.i(TAG, "UbaidAccessibilityService destroyed")
     }
 
+    private fun wakeScreenIfOff() {
+        try {
+            val pm = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+            if (pm != null && !pm.isInteractive) {
+                @Suppress("DEPRECATION")
+                val wl = pm.newWakeLock(
+                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "ubaid:screen_wakeup"
+                )
+                wl.acquire(1500)
+                wl.release()
+            }
+        } catch (e: Exception) {
+            // Ignored
+        }
+    }
+
     /**
      * Dispatches a tap gesture based on screen percentage coordinates (0.0 to 1.0)
      */
     fun performTap(xPct: Float, yPct: Float, callback: ((Boolean) -> Unit)? = null) {
+        wakeScreenIfOff()
         val metrics = resources.displayMetrics
         val realX = (xPct.coerceIn(0f, 1f) * metrics.widthPixels)
         val realY = (yPct.coerceIn(0f, 1f) * metrics.heightPixels)
@@ -97,6 +115,7 @@ class UbaidAccessibilityService : AccessibilityService() {
         durationMs: Long = 300L,
         callback: ((Boolean) -> Unit)? = null
     ) {
+        wakeScreenIfOff()
         val metrics = resources.displayMetrics
         val startX = (startXRatio.coerceIn(0f, 1f) * metrics.widthPixels)
         val startY = (startYRatio.coerceIn(0f, 1f) * metrics.heightPixels)
@@ -133,6 +152,9 @@ class UbaidAccessibilityService : AccessibilityService() {
      * Dispatches system global navigation actions
      */
     fun performKeyAction(action: String): Boolean {
+        if (action.lowercase() != "lock_screen") {
+            wakeScreenIfOff()
+        }
         val globalActionId = when (action.lowercase()) {
             "back" -> GLOBAL_ACTION_BACK
             "home" -> GLOBAL_ACTION_HOME

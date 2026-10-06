@@ -57,6 +57,7 @@ class WebRtcHostService : Service() {
         private set
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): WebRtcHostService = this@WebRtcHostService
@@ -66,6 +67,17 @@ class WebRtcHostService : Service() {
         super.onCreate()
         instance = this
         createNotificationChannel()
+
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "ubaid:host_cpu_active")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed acquiring partial wake lock", e)
+        }
+
         Log.i(TAG, "WebRtcHostService created")
     }
 
@@ -233,6 +245,15 @@ class WebRtcHostService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopEngine()
+
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (e: Exception) {
+            // Ignored
+        }
+
         if (instance == this) {
             instance = null
         }
